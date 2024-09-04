@@ -34,7 +34,7 @@ def dataset():
     ]
     return input_text
 
-def build_and_run_llama(hf_model_dir, engine_dir, tp_size, rank):
+def build_and_run_llama(hf_model_dir, engine_dir, force_build, tp_size, rank):
     global tokenizer, executor  # Ensure the tokenizer and executor are accessible globally
     tensorrt_llm.logger.set_level('verbose')
     status, = cudart.cudaSetDevice(rank)
@@ -43,15 +43,17 @@ def build_and_run_llama(hf_model_dir, engine_dir, tp_size, rank):
     ## Build engine
     build_config = BuildConfig(max_input_len=256,
                                max_seq_len=8192,
-                               max_batch_size=2)
+                               opt_batch_size=2,
+                               max_batch_size=3)
     # build_config.builder_opt = 0  # fast build for demo, pls avoid using this in production, since inference might be slower
     build_config.plugin_config.gemm_plugin = 'bfloat16'  # for fast build, tune inference perf based on your needs
     build_config.plugin_config.gpt_attention_plugin = 'bfloat16'  # for fast build, tune inference perf based on your needs
     build_config.plugin_config.context_fmha_type = 'enabled'  # for fast build, tune inference perf based on your needs
     mapping = Mapping(world_size=tp_size, rank=rank, tp_size=tp_size)
-    llama = LLaMAForCausalLM.from_hugging_face(hf_model_dir, mapping=mapping, dtype="bfloat16")
-    engine = build(llama, build_config)
-    engine.save(engine_dir)
+    if force_build:
+        llama = LLaMAForCausalLM.from_hugging_face(hf_model_dir, mapping=mapping, dtype="bfloat16")
+        engine = build(llama, build_config)
+        engine.save(engine_dir)
     mpi_barrier()  # make sure every rank engine build finished
     tokenizer = AutoTokenizer.from_pretrained(hf_model_dir)
     ## Initialize tokenizer and executor
@@ -161,6 +163,12 @@ def parse_args():
         required=True,
         help="Read the model data and tokenizer from this directory"
     )
+    parser.add_argument(
+        '-b', '--build',
+        action='store_true',
+        help='Force to rebuild the engine',
+        default=False
+    )
     parser.add_argument("-n",
                         "--tp_size",
                         type=int,
@@ -180,6 +188,7 @@ def main(args):
         results = pool.map(build_and_run_llama,
                            [args.hf_model_dir] * args.tp_size,
                            [args.engine_dir] * args.tp_size,
+                           args.build,
                            [args.tp_size] * args.tp_size, range(args.tp_size))
         for r in results:
             assert r
