@@ -14,6 +14,7 @@ from tensorrt_llm.executor import GenerationExecutor, SamplingParams
 from tensorrt_llm.models import LLaMAForCausalLM
 from fastapi import FastAPI
 from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
 
 # FastAPI app
 app = FastAPI()
@@ -75,6 +76,37 @@ def build_and_run_llama(hf_model_dir, engine_dir, tp_size, rank):
     mpi_barrier()
     return True
 
+
+async def generate_async(messages, max_tokens, seed, timeout=2.5):
+    start_at = time.time()
+    prompt = tokenizer.apply_chat_template(messages)
+    print(f"prompt length: {len(prompt)}")
+    sampling_params = SamplingParams(
+        repetition_penalty=1.0,
+        length_penalty=1.0,
+        temperature=0.01,
+        top_p=0.998,
+        max_new_tokens=max_tokens - len(prompt),
+        end_id=tokenizer.eos_token_id,
+        stop_token_ids=[tokenizer.eos_token_id],
+        random_seed=seed,
+    )
+    stream = executor.generate_async(prompt,
+                               sampling_params=sampling_params, streaming=True)
+    responses = []
+    first_at = None
+    for output in stream:
+        if first_at is None:
+            first_at = time.time()
+        output_str = tokenizer.decode(output.outputs[0].token_ids[-1])
+        yield output_str
+        responses.append(output_str)
+        if timeout < time.time() - start_at:
+            break
+    output_str = "".join(responses)
+    wps = len(output_str.split(" ")) / (time.time() - start_at)
+    print(f"wps: {wps}, {len(output_str)} words in {time.time() - start_at} seconds, first token: {first_at - start_at}")
+
 def generate_text(messages, max_tokens, seed, timeout=2.5):
     start_at = time.time()
     prompt = tokenizer.apply_chat_template(messages)
@@ -93,24 +125,27 @@ def generate_text(messages, max_tokens, seed, timeout=2.5):
                                sampling_params=sampling_params, streaming=True)
     responses = []
     first_at = None
-    limited_str = ""
     for output in stream:
         if first_at is None:
             first_at = time.time()
         output_str = tokenizer.decode(output.outputs[0].token_ids[-1])
         responses.append(output_str)
-        if timeout < time.time() - start_at and limited_str == "":
-            limited_str = "".join(responses)
-            return limited_str
+        if timeout < time.time() - start_at:
+            break
     output_str = "".join(responses)
     wps = len(output_str.split(" ")) / (time.time() - start_at)
-    print(limited_str)
     print(f"wps: {wps}, {len(output_str)} words in {time.time() - start_at} seconds, first token: {first_at - start_at}")
     return output_str
 
 @app.post("/generate")
 def generate(data: InputData):
     return generate_text(data.messages, data.sampling_params['max_new_tokens'], data.sampling_params.get('seed', 0), data.sampling_params.get('timeout', 0.4))
+
+@app.post("/generate_async")
+def generate(data: InputData):
+    stream = generate_text(data.messages, data.sampling_params['max_new_tokens'], data.sampling_params.get('seed', 0), data.sampling_params.get('timeout', 0.4))
+    return StreamingResponse(stream, media_type="text/plain")
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Llama single model example")
