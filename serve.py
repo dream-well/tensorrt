@@ -43,8 +43,8 @@ def build_and_run_llama(hf_model_dir, engine_dir, force_build, tp_size, rank):
     ## Build engine
     build_config = BuildConfig(max_input_len=256,
                                max_seq_len=8192,
-                               opt_batch_size=2,
-                               max_batch_size=3)
+                               opt_batch_size=6,
+                               max_batch_size=6)
     # build_config.builder_opt = 0  # fast build for demo, pls avoid using this in production, since inference might be slower
     build_config.plugin_config.gemm_plugin = 'bfloat16'  # for fast build, tune inference perf based on your needs
     build_config.plugin_config.gpt_attention_plugin = 'bfloat16'  # for fast build, tune inference perf based on your needs
@@ -79,7 +79,7 @@ def build_and_run_llama(hf_model_dir, engine_dir, force_build, tp_size, rank):
     return True
 
 
-async def generate_async(messages, max_tokens, seed, timeout=2.5):
+async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
     start_at = time.time()
     prompt = tokenizer.apply_chat_template(messages)
     print(f"prompt length: {len(prompt)}")
@@ -144,8 +144,8 @@ def generate(data: InputData):
     return generate_text(data.messages, data.sampling_params['max_new_tokens'], data.sampling_params.get('seed', 0), data.sampling_params.get('timeout', 0.4))
 
 @app.post("/generate_async")
-def generate(data: InputData):
-    stream = generate_text(data.messages, data.sampling_params['max_new_tokens'], data.sampling_params.get('seed', 0), data.sampling_params.get('timeout', 0.4))
+def generate_async(data: InputData):
+    stream = generate_text_async(data.messages, data.sampling_params['max_new_tokens'], data.sampling_params.get('seed', 0), data.sampling_params.get('timeout', 0.4))
     return StreamingResponse(stream, media_type="text/plain")
 
 
