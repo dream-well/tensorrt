@@ -188,7 +188,7 @@ def main(args):
         results = pool.map(build_and_run_llama,
                            [args.hf_model_dir] * args.tp_size,
                            [args.engine_dir] * args.tp_size,
-                           args.build,
+                           [args.build] * args.tp_size,
                            [args.tp_size] * args.tp_size, range(args.tp_size))
         for r in results:
             assert r
