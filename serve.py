@@ -124,41 +124,18 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
     print(f"wps: {wps}, {len(output_str.split(' '))} words in {time.time() - start_at} seconds, first token: {first_at - start_at}")
 
 def generate_text(messages, max_tokens, seed, timeout=2.5):
-    start_at = time.time()
-    prompt = tokenizer.apply_chat_template(messages)
-    sampling_params = SamplingParams(
-        repetition_penalty=1.0,
-        length_penalty=1.0,
-        temperature=0.01,
-        top_p=0.998,
-        max_new_tokens=max_tokens - len(prompt),
-        end_id=tokenizer.eos_token_id,
-        stop_token_ids=[tokenizer.eos_token_id],
-        random_seed=seed,
-    )
-    stream = executor.generate_async(prompt,
-                               sampling_params=sampling_params, streaming=True)
     responses = []
-    first_at = None
-    for output in stream:
-        if first_at is None:
-            first_at = time.time()
-        output_str = tokenizer.decode(output.outputs[0].token_ids[-1])
+    for output_str in generate_text_async(messages, max_tokens, seed, timeout):
         responses.append(output_str)
-        if timeout < time.time() - start_at:
-            break
-    output_str = "".join(responses)
-    wps = len(output_str.split(" ")) / (time.time() - start_at)
-    print(f"wps: {wps}, {len(output_str)} words in {time.time() - start_at} seconds, first token: {first_at - start_at}")
-    return output_str
+    return "".join(responses)
 
 @app.post("/generate")
 def generate(data: InputData):
-    return generate_text(data.messages, data.sampling_params['max_new_tokens'], data.sampling_params.get('seed', 0), data.sampling_params.get('timeout', 0.4))
+    return generate_text(data.messages, data.sampling_params['max_new_tokens'], data.sampling_params.get('seed', 0), data.sampling_params.get('timeout', 0.6))
 
 @app.post("/generate_async")
 def generate_async(data: InputData):
-    stream = generate_text_async(data.messages, data.sampling_params['max_new_tokens'], data.sampling_params.get('seed', 0), data.sampling_params.get('timeout', 0.4))
+    stream = generate_text_async(data.messages, data.sampling_params['max_new_tokens'], data.sampling_params.get('seed', 0), data.sampling_params.get('timeout', 0.6))
     return StreamingResponse(stream, media_type="text/plain")
 
 
