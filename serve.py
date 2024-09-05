@@ -83,7 +83,6 @@ def build_and_run_llama(hf_model_dir, engine_dir, force_build, tp_size, rank):
 async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
     start_at = time.time()
     prompt = tokenizer.apply_chat_template(messages)
-    print(f"prompt length: {len(prompt)}")
     sampling_params = SamplingParams(
         repetition_penalty=1.0,
         length_penalty=1.0,
@@ -106,7 +105,7 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
         responses.append(token)
         
         output_str += token
-        if time.time() - start_at > 0.5 and len(output_str) > 15:
+        if time.time() - start_at > 0.6 and len(output_str) > 30:
             yield output_str
             output_str = ""
         
@@ -119,12 +118,12 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
         responses.append(output_str)
     output_str = "".join(responses)
     wps = len(output_str.split(" ")) / (time.time() - start_at)
+    print(f"prompt: {prompt}")
     print(f"wps: {wps}, {len(output_str.split(' '))} words in {time.time() - start_at} seconds, first token: {first_at - start_at}")
 
 def generate_text(messages, max_tokens, seed, timeout=2.5):
     start_at = time.time()
     prompt = tokenizer.apply_chat_template(messages)
-    print(f"prompt length: {len(prompt)}")
     sampling_params = SamplingParams(
         repetition_penalty=1.0,
         length_penalty=1.0,
