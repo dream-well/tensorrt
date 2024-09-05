@@ -82,6 +82,7 @@ def build_and_run_llama(hf_model_dir, engine_dir, force_build, tp_size, rank):
 
 async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
     start_at = time.time()
+    query = messages[1]['content'][14:]
     prompt = tokenizer.apply_chat_template(messages)
     sampling_params = SamplingParams(
         repetition_penalty=1.0,
@@ -118,7 +119,8 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
         responses.append(output_str)
     output_str = "".join(responses)
     wps = len(output_str.split(" ")) / (time.time() - start_at)
-    print(f"prompt: {prompt}")
+    print(f"query: {query}")
+    print("output:", output_str[:100])
     print(f"wps: {wps}, {len(output_str.split(' '))} words in {time.time() - start_at} seconds, first token: {first_at - start_at}")
 
 def generate_text(messages, max_tokens, seed, timeout=2.5):
