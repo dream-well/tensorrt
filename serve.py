@@ -103,7 +103,7 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
         if first_at is None:
             first_at = time.time()
         output_str += tokenizer.decode(output.outputs[0].token_ids[-1])
-        if time.time() - start_at > 0.6:
+        if time.time() - start_at > 0.6 and len(output_str) > 15:
             yield output_str
             output_str = ""
         responses.append(output_str)
