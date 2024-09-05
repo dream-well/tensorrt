@@ -74,7 +74,7 @@ def build_and_run_llama(hf_model_dir, engine_dir, force_build, tp_size, rank):
         import uvicorn
         global executor
         executor = myexecutor
-        uvicorn.run(app, host="0.0.0.0", port=80)
+        uvicorn.run(app, host="0.0.0.0", port=3000)
 
     mpi_barrier()
     return True
