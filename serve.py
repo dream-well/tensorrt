@@ -117,7 +117,6 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
 
     if output_str != "":
         yield output_str
-        responses.append(output_str)
     output_str = "".join(responses)
     wps = len(output_str.split(" ")) / (time.time() - start_at)
     print(f"query: {query}")
