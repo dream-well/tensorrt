@@ -123,15 +123,18 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
     print("output:", output_str[:100])
     print(f"wps: {wps}, {len(output_str.split(' '))} words in {time.time() - start_at} seconds, first token: {first_at - start_at}")
 
-def generate_text(messages, max_tokens, seed, timeout=2.5):
-    responses = []
-    for output_str in generate_text_async(messages, max_tokens, seed, timeout):
-        responses.append(output_str)
-    return "".join(responses)
+async def generate_text(messages, max_tokens, seed, timeout=2.5):
+    output_str = ""
+    async for output in generate_text_async(messages, max_tokens, seed, timeout):
+        output_str += output
+    return output_str
 
 @app.post("/generate")
-def generate(data: InputData):
-    return generate_text(data.messages, data.sampling_params['max_new_tokens'], data.sampling_params.get('seed', 0), data.sampling_params.get('timeout', 0.6))
+async def generate(data: InputData):
+    output_str = ""
+    async for output in generate_text_async(messages, max_tokens, seed, timeout):
+        output_str += output
+    return output_str
 
 @app.post("/generate_async")
 def generate_async(data: InputData):
