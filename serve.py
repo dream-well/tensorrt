@@ -142,6 +142,9 @@ def generate_async(data: InputData):
     stream = generate_text_async(data.messages, data.sampling_params['max_new_tokens'], data.sampling_params.get('seed', 0), data.sampling_params.get('timeout', 0.6))
     return StreamingResponse(stream, media_type="text/plain")
 
+@app.get("/health")
+def health():
+    return "ok"
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Llama single model example")
