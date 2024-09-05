@@ -98,6 +98,7 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
                                sampling_params=sampling_params, streaming=True)
     responses = []
     first_at = None
+    yield ""
     output_str = ""
     for output in stream:
         if first_at is None:
