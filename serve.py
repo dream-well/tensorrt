@@ -112,7 +112,7 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
         yield output_str
     output_str = "".join(responses)
     wps = len(output_str.split(" ")) / (time.time() - start_at)
-    print(f"wps: {wps}, {len(output_str.split(" "))} words in {time.time() - start_at} seconds, first token: {first_at - start_at}")
+    print(f"wps: {wps}, {len(output_str.split(' '))} words in {time.time() - start_at} seconds, first token: {first_at - start_at}")
 
 def generate_text(messages, max_tokens, seed, timeout=2.5):
     start_at = time.time()
