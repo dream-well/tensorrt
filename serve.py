@@ -41,10 +41,10 @@ def build_and_run_llama(hf_model_dir, engine_dir, force_build, tp_size, rank):
     assert status == cudart.cudaError_t.cudaSuccess, f"cuda set device to {rank} errored: {status}"
 
     ## Build engine
-    build_config = BuildConfig(max_input_len=256,
-                               max_seq_len=8192,
-                               opt_batch_size=6,
-                               max_batch_size=6)
+    build_config = BuildConfig(max_input_len=128,
+                               max_seq_len=512,
+                               opt_batch_size=8,
+                               max_batch_size=8)
     # build_config.builder_opt = 0  # fast build for demo, pls avoid using this in production, since inference might be slower
     build_config.plugin_config.gemm_plugin = 'bfloat16'  # for fast build, tune inference perf based on your needs
     build_config.plugin_config.gpt_attention_plugin = 'bfloat16'  # for fast build, tune inference perf based on your needs
