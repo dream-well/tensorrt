@@ -97,17 +97,22 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
                                sampling_params=sampling_params, streaming=True)
     responses = []
     first_at = None
+    output_str = ""
     for output in stream:
         if first_at is None:
             first_at = time.time()
-        output_str = tokenizer.decode(output.outputs[0].token_ids[-1])
-        yield output_str
+        output_str += tokenizer.decode(output.outputs[0].token_ids[-1])
+        if time.time() - start_at > 0.6:
+            yield output_str
+            output_str = ""
         responses.append(output_str)
         if timeout < time.time() - start_at:
             break
+    if output_str != "":
+        yield output_str
     output_str = "".join(responses)
     wps = len(output_str.split(" ")) / (time.time() - start_at)
-    print(f"wps: {wps}, {len(output_str)} words in {time.time() - start_at} seconds, first token: {first_at - start_at}")
+    print(f"wps: {wps}, {len(output_str.split(" "))} words in {time.time() - start_at} seconds, first token: {first_at - start_at}")
 
 def generate_text(messages, max_tokens, seed, timeout=2.5):
     start_at = time.time()
