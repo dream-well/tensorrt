@@ -108,12 +108,12 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
         
         output_str += token
         if (time.time() - start_at > 0.4) and len(output_str) > 50:
-            print("chunk", output_str)
+            # print("chunk", output_str)
             yield output_str
             output_str = ""
         
         if timeout < time.time() - start_at:
-            print(f"timeout {time.time() - start_at}s")
+            print(f"timeout {time.time() - start_at}s: {query}")
             break
 
     if output_str != "":
