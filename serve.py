@@ -132,7 +132,7 @@ async def generate_text(messages, max_tokens, seed, timeout=2.5):
 @app.post("/generate")
 async def generate(data: InputData):
     output_str = ""
-    async for output in generate_text_async(messages, max_tokens, seed, timeout):
+    async for output in generate_text_async(data.messages, data.sampling_params['max_new_tokens'], data.sampling_params.get('seed', 0), data.sampling_params.get('timeout', 0.6)):
         output_str += output
     return output_str
 
