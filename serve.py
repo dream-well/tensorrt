@@ -98,9 +98,8 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
                                sampling_params=sampling_params, streaming=True)
     responses = []
     first_at = None
-    yield ""
     output_str = ""
-    for output in stream:
+    async for output in stream:
         if first_at is None:
             first_at = time.time()
         token = tokenizer.decode(output.outputs[0].token_ids[-1])
