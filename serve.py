@@ -107,7 +107,7 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
         responses.append(token)
         
         output_str += token
-        if (time.time() - start_at > 0.25) and len(output_str) > 150:
+        if (time.time() - start_at > 0.2) and len(output_str) > 100:
             # print("chunk", output_str)
             yield output_str
             output_str = ""
