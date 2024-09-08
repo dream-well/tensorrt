@@ -6,6 +6,7 @@ from typing import List
 
 from cuda import cudart
 from mpi4py.futures import MPIPoolExecutor
+import tensorrt_llm.bindings
 from transformers import AutoTokenizer
 
 import tensorrt_llm
@@ -18,6 +19,7 @@ from fastapi.responses import StreamingResponse
 import subprocess
 import threading
 import traceback
+import asyncio
 
 # FastAPI app
 app = FastAPI()
@@ -63,7 +65,13 @@ def build_and_run_llama(hf_model_dir, engine_dir, force_build, tp_size, rank):
     mpi_barrier()  # make sure every rank engine build finished
     tokenizer = AutoTokenizer.from_pretrained(hf_model_dir)
     ## Initialize tokenizer and executor
-    myexecutor = GenerationExecutor.create(engine_dir)
+    config = tensorrt_llm.bindings.executor.ExecutorConfig(
+        kv_cache_config=tensorrt_llm.bindings.executor.KvCacheConfig(
+            enable_block_reuse=False,
+            onboard_blocks=False,
+        )
+    )
+    myexecutor = GenerationExecutor.create(engine_dir, config)
     sampling_params = SamplingParams(max_new_tokens=200)
     print("Created executor")
     if rank == 0:
