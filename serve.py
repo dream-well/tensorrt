@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 import subprocess
 import threading
+import traceback
 
 # FastAPI app
 app = FastAPI()
@@ -122,26 +123,29 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
         yield output_str
     output_str = "".join(responses)
     wps = len(output_str.split(" ")) / (time.time() - start_at)
-    global wps_list
-    wps_list.append(wps)
-    average_wps = sum(wps_list[:-20]) / len(wps_list[:-20])
-    first_average = sum(wps_list[0:20]) / len(wps_list[0:20])
-    print(f"query: {query}")
-    print("output:", output_str[:150])
-    print(f"wps: {wps}, {len(output_str.split(' '))} words in {time.time() - start_at} seconds, first token: {first_at - start_at}")
-    print(f"average wps: {average_wps}/{first_average}, {wps_list[:-20]}")
-    if len(wps_list) > 100 and (average_wps < 180 or average_wps < first_average * 0.8):
-        print("average wps is too low, restarting the server")
-        my_pm2_id = args.pm2_id
-        other_pm2_id = 1 if my_pm2_id == 0 else 0
-        async def restart_server():
-            subprocess.run(f"pm2 start {other_pm2_id}")
-            print(f"Started {other_pm2_id}, waiting for 25 seconds")
-            await asyncio.sleep(25)
-            print(f"Stopping {my_pm2_id}")
-            subprocess.run(f"pm2 stop {my_pm2_id}")
-        thread = threading.Thread(target=restart_server)
-        thread.start()
+    try:
+        global wps_list
+        wps_list.append(wps)
+        average_wps = sum(wps_list[:-20]) / len(wps_list[:-20])
+        first_average = sum(wps_list[0:20]) / len(wps_list[0:20])
+        print(f"query: {query}")
+        print("output:", output_str[:150])
+        print(f"wps: {wps}, {len(output_str.split(' '))} words in {time.time() - start_at} seconds, first token: {first_at - start_at}")
+        print(f"average wps: {average_wps}/{first_average}, {wps_list[:-20]}")
+        if len(wps_list) > 100 and (average_wps < 180 or average_wps < first_average * 0.8):
+            print("average wps is too low, restarting the server")
+            my_pm2_id = args.pm2_id
+            other_pm2_id = 1 if my_pm2_id == 0 else 0
+            async def restart_server():
+                subprocess.run(f"pm2 start {other_pm2_id}")
+                print(f"Started {other_pm2_id}, waiting for 25 seconds")
+                await asyncio.sleep(25)
+                print(f"Stopping {my_pm2_id}")
+                subprocess.run(f"pm2 stop {my_pm2_id}")
+            thread = threading.Thread(target=restart_server)
+            thread.start()
+    except Exception as e:
+        traceback.print_exc()
 
 async def generate_text(messages, max_tokens, seed, timeout=2.5):
     output_str = ""
