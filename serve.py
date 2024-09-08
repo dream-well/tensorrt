@@ -25,6 +25,7 @@ app = FastAPI()
 # Global variables to be used across functions
 tokenizer = None
 executor = None
+pm2_id = 0
 wps_list = []
 
 class InputData(BaseModel):
@@ -136,8 +137,7 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
         print(f"average wps: {average_wps}/{first_average} requests: {len(wps_list)}, {wps_list[-10:]}")
         if len(wps_list) > 50 and (average_wps < 180 or average_wps < first_average * 0.8):
             print("average wps is too low, restarting the server")
-            global args
-            my_pm2_id = args.pm2_id
+            my_pm2_id = pm2_id
             other_pm2_id = 1 if my_pm2_id == 0 else 0
             async def restart_server():
                 subprocess.run(f"pm2 start {other_pm2_id}")
@@ -206,6 +206,8 @@ def main(args):
 
     if not os.path.exists(args.engine_dir):
         os.makedirs(args.engine_dir, exist_ok=True)
+
+    pm2_id = args.pm2_id
 
     ## Build engine in parallel
     with MPIPoolExecutor(max_workers=args.tp_size) as pool:
