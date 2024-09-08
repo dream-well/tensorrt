@@ -122,13 +122,14 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
         yield output_str
     output_str = "".join(responses)
     wps = len(output_str.split(" ")) / (time.time() - start_at)
+    global wps_list
     wps_list.append(wps)
-    average_wps = sum(wps_list[-20]) / len(wps_list[-20])
+    average_wps = sum(wps_list[:-20]) / len(wps_list[:-20])
     first_average = sum(wps_list[0:20]) / len(wps_list[0:20])
     print(f"query: {query}")
     print("output:", output_str[:150])
     print(f"wps: {wps}, {len(output_str.split(' '))} words in {time.time() - start_at} seconds, first token: {first_at - start_at}")
-    print(f"average wps: {average_wps}/{first_average}, {wps_list[-20]}")
+    print(f"average wps: {average_wps}/{first_average}, {wps_list[:-20]}")
     if len(wps_list) > 100 and (average_wps < 180 or average_wps < first_average * 0.8):
         print("average wps is too low, restarting the server")
         my_pm2_id = args.pm2_id
