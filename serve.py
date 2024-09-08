@@ -29,6 +29,7 @@ tokenizer = None
 executor = None
 pm2_id = 0
 wps_list = []
+is_exit = False
 
 class InputData(BaseModel):
     sampling_params: dict
@@ -41,8 +42,10 @@ def dataset():
     ]
     return input_text
 
-def build_and_run_llama(hf_model_dir, engine_dir, force_build, tp_size, rank):
+def build_and_run_llama(my_pm2_id, hf_model_dir, engine_dir, force_build, tp_size, rank):
     global tokenizer, executor  # Ensure the tokenizer and executor are accessible globally
+    global pm2_id
+    pm2_id = my_pm2_id
     tensorrt_llm.logger.set_level('verbose')
     status, = cudart.cudaSetDevice(rank)
     assert status == cudart.cudaError_t.cudaSuccess, f"cuda set device to {rank} errored: {status}"
@@ -58,7 +61,6 @@ def build_and_run_llama(hf_model_dir, engine_dir, force_build, tp_size, rank):
     build_config.plugin_config.gemm_plugin = 'bfloat16'  # for fast build, tune inference perf based on your needs
     build_config.plugin_config.gpt_attention_plugin = 'bfloat16'  # for fast build, tune inference perf based on your needs
     build_config.plugin_config.context_fmha_type = 'enabled'  # for fast build, tune inference perf based on your needs
-    build_config.plugin_config.paged_kv_cache = False  # for fast build, tune inference perf based on your needs
     mapping = Mapping(world_size=tp_size, rank=rank, tp_size=tp_size)
     if force_build:
         llama = LLaMAForCausalLM.from_hugging_face(hf_model_dir, mapping=mapping, dtype="bfloat16")
@@ -142,9 +144,12 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
         print("output:", output_str[:150])
         print(f"wps: {wps}, {len(output_str.split(' '))} words in {time.time() - start_at} seconds, first token: {first_at - start_at}")
         print(f"average wps: {average_wps}/{first_average} requests: {len(wps_list)}, {wps_list[-10:]}")
-        if len(wps_list) > 50 and (average_wps < 180 or average_wps < first_average * 0.8):
-            print("average wps is too low, restarting the server")
+        global is_exit
+        if len(wps_list) > 50 and (average_wps < 180 or average_wps < first_average * 0.8) and is_exit == False:
+            is_exit = True
+            global pm2_id
             my_pm2_id = pm2_id
+            print("average wps is too low, restarting the server", pm2_id)
             other_pm2_id = 1 if my_pm2_id == 0 else 0
             def restart_server():
                 subprocess.run(f"pm2 start {other_pm2_id}", shell=True, check=True)
@@ -213,12 +218,11 @@ def main(args):
 
     if not os.path.exists(args.engine_dir):
         os.makedirs(args.engine_dir, exist_ok=True)
-
-    pm2_id = args.pm2_id
-
+    
     ## Build engine in parallel
     with MPIPoolExecutor(max_workers=args.tp_size) as pool:
         results = pool.map(build_and_run_llama,
+                           [args.pm2_id] * args.tp_size,
                            [args.hf_model_dir] * args.tp_size,
                            [args.engine_dir] * args.tp_size,
                            [args.build] * args.tp_size,
