@@ -58,7 +58,7 @@ def build_and_run_llama(hf_model_dir, engine_dir, force_build, tp_size, rank):
     build_config.plugin_config.gemm_plugin = 'bfloat16'  # for fast build, tune inference perf based on your needs
     build_config.plugin_config.gpt_attention_plugin = 'bfloat16'  # for fast build, tune inference perf based on your needs
     build_config.plugin_config.context_fmha_type = 'enabled'  # for fast build, tune inference perf based on your needs
-    build_config.plugin_config.paged_kv_cache = 'disabled'  # for fast build, tune inference perf based on your needs
+    build_config.plugin_config.paged_kv_cache = False  # for fast build, tune inference perf based on your needs
     mapping = Mapping(world_size=tp_size, rank=rank, tp_size=tp_size)
     if force_build:
         llama = LLaMAForCausalLM.from_hugging_face(hf_model_dir, mapping=mapping, dtype="bfloat16")
@@ -68,7 +68,7 @@ def build_and_run_llama(hf_model_dir, engine_dir, force_build, tp_size, rank):
     tokenizer = AutoTokenizer.from_pretrained(hf_model_dir)
     ## Initialize tokenizer and executor
     config = tensorrt_llm.bindings.executor.ExecutorConfig(
-        batching_type=1,
+        batching_type=tensorrt_llm.bindings.executor.BatchingType.INFLIGHT,
     )
     myexecutor = GenerationExecutor.create(engine_dir, config)
     sampling_params = SamplingParams(max_new_tokens=200)
@@ -146,12 +146,12 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
             print("average wps is too low, restarting the server")
             my_pm2_id = pm2_id
             other_pm2_id = 1 if my_pm2_id == 0 else 0
-            async def restart_server():
-                subprocess.run(f"pm2 start {other_pm2_id}")
+            def restart_server():
+                subprocess.run(f"pm2 start {other_pm2_id}", shell=True, check=True)
                 print(f"Started {other_pm2_id}, waiting for 25 seconds")
-                await asyncio.sleep(25)
+                time.sleep(25)
                 print(f"Stopping {my_pm2_id}")
-                subprocess.run(f"pm2 stop {my_pm2_id}")
+                subprocess.run(f"pm2 stop {my_pm2_id}", shell=True, check=True)
             thread = threading.Thread(target=restart_server)
             thread.start()
     except Exception as e:
