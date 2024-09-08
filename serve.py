@@ -15,6 +15,8 @@ from tensorrt_llm.models import LLaMAForCausalLM
 from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
+import subprocess
+import threading
 
 # FastAPI app
 app = FastAPI()
@@ -22,6 +24,7 @@ app = FastAPI()
 # Global variables to be used across functions
 tokenizer = None
 executor = None
+wps_list = []
 
 class InputData(BaseModel):
     sampling_params: dict
@@ -106,8 +109,8 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
         responses.append(token)
         
         output_str += token
-        if (time.time() - start_at > 0.4) and len(output_str) > 20:
-            print("chunk", output_str)
+        if (time.time() - start_at > 0.4) and len(output_str) > 30:
+            # print("chunk", output_str)
             yield output_str
             output_str = ""
         
@@ -119,9 +122,25 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
         yield output_str
     output_str = "".join(responses)
     wps = len(output_str.split(" ")) / (time.time() - start_at)
+    wps_list.append(wps)
+    average_wps = sum(wps_list[-20]) / len(wps_list[-20])
+    first_average = sum(wps_list[0:20]) / len(wps_list[0:20])
     print(f"query: {query}")
-    print("output:", output_str[:100])
+    print("output:", output_str[:150])
     print(f"wps: {wps}, {len(output_str.split(' '))} words in {time.time() - start_at} seconds, first token: {first_at - start_at}")
+    print(f"average wps: {average_wps}/{first_average}, {wps_list[-20]}")
+    if len(wps_list) > 100 and (average_wps < 180 or average_wps < first_average * 0.8):
+        print("average wps is too low, restarting the server")
+        my_pm2_id = args.pm2_id
+        other_pm2_id = 1 if my_pm2_id == 0 else 0
+        async def restart_server():
+            subprocess.run(f"pm2 start {other_pm2_id}")
+            print(f"Started {other_pm2_id}, waiting for 25 seconds")
+            await asyncio.sleep(25)
+            print(f"Stopping {my_pm2_id}")
+            subprocess.run(f"pm2 stop {my_pm2_id}")
+        thread = threading.Thread(target=restart_server)
+        thread.start()
 
 async def generate_text(messages, max_tokens, seed, timeout=2.5):
     output_str = ""
@@ -170,6 +189,7 @@ def parse_args():
                         type=int,
                         default=2,
                         help="TP size to run the model")
+    parser.add_argument("--pm2_id", type=int, default=0, help="pm2 id")
     return parser.parse_args()
 
 def main(args):
