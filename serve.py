@@ -52,11 +52,13 @@ def build_and_run_llama(hf_model_dir, engine_dir, force_build, tp_size, rank):
                                max_seq_len=512,
                                opt_batch_size=8,
                                max_num_tokens=4096,
-                               max_batch_size=16)
+                               max_batch_size=16,
+                               )
     # build_config.builder_opt = 0  # fast build for demo, pls avoid using this in production, since inference might be slower
     build_config.plugin_config.gemm_plugin = 'bfloat16'  # for fast build, tune inference perf based on your needs
     build_config.plugin_config.gpt_attention_plugin = 'bfloat16'  # for fast build, tune inference perf based on your needs
     build_config.plugin_config.context_fmha_type = 'enabled'  # for fast build, tune inference perf based on your needs
+    build_config.plugin_config.paged_kv_cache = 'disabled'  # for fast build, tune inference perf based on your needs
     mapping = Mapping(world_size=tp_size, rank=rank, tp_size=tp_size)
     if force_build:
         llama = LLaMAForCausalLM.from_hugging_face(hf_model_dir, mapping=mapping, dtype="bfloat16")
@@ -66,10 +68,7 @@ def build_and_run_llama(hf_model_dir, engine_dir, force_build, tp_size, rank):
     tokenizer = AutoTokenizer.from_pretrained(hf_model_dir)
     ## Initialize tokenizer and executor
     config = tensorrt_llm.bindings.executor.ExecutorConfig(
-        kv_cache_config=tensorrt_llm.bindings.executor.KvCacheConfig(
-            enable_block_reuse=False,
-            onboard_blocks=False,
-        )
+        batching_type=1,
     )
     myexecutor = GenerationExecutor.create(engine_dir, config)
     sampling_params = SamplingParams(max_new_tokens=200)
