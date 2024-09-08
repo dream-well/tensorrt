@@ -145,7 +145,7 @@ async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
         print(f"wps: {wps}, {len(output_str.split(' '))} words in {time.time() - start_at} seconds, first token: {first_at - start_at}")
         print(f"average wps: {average_wps}/{first_average} requests: {len(wps_list)}, {wps_list[-10:]}")
         global is_exit
-        if len(wps_list) > 50 and (average_wps < 190 or average_wps < first_average * 0.85) and is_exit == False:
+        if len(wps_list) > 50 and (average_wps < 180 or average_wps < first_average * 0.8) and is_exit == False:
             is_exit = True
             global pm2_id
             my_pm2_id = pm2_id
