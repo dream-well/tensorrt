@@ -2,7 +2,7 @@ import argparse
 import os
 import time
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from cuda import cudart
 from mpi4py.futures import MPIPoolExecutor
@@ -15,7 +15,7 @@ from tensorrt_llm.executor import GenerationExecutor, SamplingParams
 from tensorrt_llm.models import LLaMAForCausalLM
 from fastapi import FastAPI
 from pydantic import BaseModel
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 import subprocess
 import threading
 import traceback
@@ -28,12 +28,16 @@ app = FastAPI()
 tokenizer = None
 executor = None
 pm2_id = 0
-wps_list = []
+tps_list = []
 is_exit = False
 
 class InputData(BaseModel):
-    sampling_params: dict
-    messages: List[dict]
+    request_type: str
+    prompt: Optional[str] = None
+    messages: Optional[List[dict]] = None
+    seed: int
+    max_tokens: int
+    temperature: float
 
 def dataset():
     input_text = [
@@ -51,11 +55,11 @@ def build_and_run_llama(my_pm2_id, hf_model_dir, engine_dir, force_build, tp_siz
     assert status == cudart.cudaError_t.cudaSuccess, f"cuda set device to {rank} errored: {status}"
 
     ## Build engine
-    build_config = BuildConfig(max_input_len=128,
-                               max_seq_len=512,
+    build_config = BuildConfig(max_input_len=256,
+                               max_seq_len=2200,
                                opt_batch_size=8,
-                               max_num_tokens=4096,
-                               max_batch_size=16,
+                               max_num_tokens=2200,
+                               max_batch_size=8,
                                )
     # build_config.builder_opt = 0  # fast build for demo, pls avoid using this in production, since inference might be slower
     build_config.plugin_config.gemm_plugin = 'bfloat16'  # for fast build, tune inference perf based on your needs
@@ -71,6 +75,10 @@ def build_and_run_llama(my_pm2_id, hf_model_dir, engine_dir, force_build, tp_siz
     ## Initialize tokenizer and executor
     config = tensorrt_llm.bindings.executor.ExecutorConfig(
         batching_type=tensorrt_llm.bindings.executor.BatchingType.INFLIGHT,
+        kv_cache_config=tensorrt_llm.bindings.executor.KvCacheConfig(
+            enable_block_reuse=True,
+            free_gpu_memory_fraction=0.2
+        )
     )
     myexecutor = GenerationExecutor.create(engine_dir, config)
     sampling_params = SamplingParams(max_new_tokens=200)
@@ -88,68 +96,79 @@ def build_and_run_llama(my_pm2_id, hf_model_dir, engine_dir, force_build, tp_siz
         import uvicorn
         global executor
         executor = myexecutor
-        uvicorn.run(app, host="0.0.0.0", port=3000)
+        uvicorn.run(app, host="0.0.0.0", port=8000)
 
     mpi_barrier()
     return True
 
 
-async def generate_text_async(messages, max_tokens, seed, timeout=2.5):
+async def generate_text_async(params: InputData):
     start_at = time.time()
-    query = messages[1]['content'][14:]
-    prompt = tokenizer.apply_chat_template(messages)
+    if params.request_type != 'CHAT':
+        if len(params.prompt.split('Search query: ')) > 1:
+            query = params.prompt.split('Search query: ')[1]
+        else:
+            query = "No query"
+        prompt = tokenizer.encode(params.prompt)
+    else:
+        query = params.messages[1]['content'][14:]
+        prompt = tokenizer.apply_chat_template(params.messages)
     sampling_params = SamplingParams(
-        repetition_penalty=1.0,
-        length_penalty=1.0,
-        temperature=0.01,
-        top_p=0.998,
-        max_new_tokens=max_tokens - len(prompt),
+        temperature=params.temperature,
+        max_tokens=params.max_tokens,
         end_id=tokenizer.eos_token_id,
         stop_token_ids=[tokenizer.eos_token_id],
-        random_seed=seed,
+        seed=params.seed,
+        return_log_probs=True,
     )
     stream = executor.generate_async(prompt,
                                sampling_params=sampling_params, streaming=True)
     responses = []
     first_at = None
     output_str = ""
+    last_output = None
+    timeout = 2.5
     async for output in stream:
         if first_at is None:
             first_at = time.time()
         token = tokenizer.decode(output.outputs[0].token_ids[-1])
-        responses.append(token)
+        logprob = output.outputs[0].logprobs[-1]
+        last_output = output.outputs[0]
+        responses.append([token, logprob])
         
         output_str += token
         if (time.time() - start_at > 0.4) and len(output_str) > 30:
             # print("chunk", output_str)
-            yield output_str
+            # yield output_str
             output_str = ""
         
         if timeout < time.time() - start_at:
             print(f"timeout {time.time() - start_at}s: {query}")
             break
 
-    if output_str != "":
-        yield output_str
-    output_str = "".join(responses)
-    wps = len(output_str.split(" ")) / (time.time() - start_at)
+    # if output_str != "":
+    #     yield output_str
+    yield {
+        "token_ids": last_output.token_ids,
+        "logprobs": last_output.logprobs,
+    }
+    # output_str = "".join(responses)
+    tps = len(responses) / (time.time() - start_at)
     try:
-        global wps_list
-        if wps < 30:
-            wps = 190
-        wps_list.append(int(wps))
-        average_wps = sum(wps_list[-20:]) / len(wps_list[-20:])
-        first_average = sum(wps_list[0:20]) / len(wps_list[0:20])
-        print(f"query: {query}")
-        print("output:", output_str[:150])
-        print(f"wps: {wps}, {len(output_str.split(' '))} words in {time.time() - start_at} seconds, first token: {first_at - start_at}")
-        print(f"average wps: {average_wps}/{first_average} requests: {len(wps_list)}, {wps_list[-10:]}")
+        global tps_list
+        tps_list.append(int(tps))
+        average_tps = sum(tps_list[-20:]) / len(tps_list[-20:])
+        first_average = sum(tps_list[0:20]) / len(tps_list[0:20])
+        # print(f"query: {last_output}")
+        # print(responses)
+        print(f"tps: {tps}, {len(responses)} tokens in {time.time() - start_at} seconds, first token: {first_at - start_at}")
+        print(f"average tps: {average_tps}/{first_average} requests: {len(tps_list)}, {tps_list[-10:]}")
         global is_exit
-        if len(wps_list) > 50 and (average_wps < 180 or average_wps < first_average * 0.8) and is_exit == False:
+        if len(tps_list) > 50 and (average_tps < 280 or average_tps < first_average * 0.8) and is_exit == False:
             is_exit = True
             global pm2_id
             my_pm2_id = pm2_id
-            print("average wps is too low, restarting the server", pm2_id)
+            print("average tps is too low, restarting the server", pm2_id)
             other_pm2_id = 1 if my_pm2_id == 0 else 0
             def restart_server():
                 subprocess.run(f"pm2 start {other_pm2_id}", shell=True, check=True)
@@ -170,14 +189,14 @@ async def generate_text(messages, max_tokens, seed, timeout=2.5):
 
 @app.post("/generate")
 async def generate(data: InputData):
-    output_str = ""
-    async for output in generate_text_async(data.messages, data.sampling_params['max_new_tokens'], data.sampling_params.get('seed', 0), data.sampling_params.get('timeout', 0.6)):
-        output_str += output
-    return output_str
+    output_tokens = {}
+    async for output in generate_text_async(data):
+        output_tokens = output
+    return JSONResponse(content=output_tokens)
 
 @app.post("/generate_async")
 def generate_async(data: InputData):
-    stream = generate_text_async(data.messages, data.sampling_params['max_new_tokens'], data.sampling_params.get('seed', 0), data.sampling_params.get('timeout', 0.6))
+    stream = generate_text_async(data)
     return StreamingResponse(stream, media_type="text/plain")
 
 @app.get("/health")
