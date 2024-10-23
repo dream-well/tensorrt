@@ -16,10 +16,20 @@ from tensorrt_llm.models import LLaMAForCausalLM
 from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.responses import JSONResponse, StreamingResponse
-import subprocess
-import threading
 import traceback
-import asyncio
+import json
+
+all_models = {
+    "NousResearch/Meta-Llama-3.1-8B-Instruct": 8,
+    "NousResearch/Hermes-3-Llama-3.1-8B": 8,
+    "NTQAI/Nxcode-CQ-7B-orpo": 7,
+    "gryphe/mythomax-l2-13b": 13,
+    # "deepseek-ai/deepseek-coder-33b-instruct": 33,
+    # "nvidia/Llama-3.1-Nemotron-70B-Instruct-HF": 70,
+}
+
+TOTAL_SIZE = sum(all_models.values())
+BUFFER_SIZE = 30
 
 # FastAPI app
 app = FastAPI()
@@ -27,7 +37,6 @@ app = FastAPI()
 # Global variables to be used across functions
 tokenizer = None
 executor = None
-pm2_id = 0
 tps_list = []
 is_exit = False
 
@@ -46,10 +55,8 @@ def dataset():
     ]
     return input_text
 
-def build_and_run_llama(my_pm2_id, hf_model_dir, engine_dir, force_build, tp_size, rank):
+def build_and_run_llama(model, hf_model_dir, engine_dir, force_build, tp_size, port, rank):
     global tokenizer, executor  # Ensure the tokenizer and executor are accessible globally
-    global pm2_id
-    pm2_id = my_pm2_id
     tensorrt_llm.logger.set_level('verbose')
     status, = cudart.cudaSetDevice(rank)
     assert status == cudart.cudaError_t.cudaSuccess, f"cuda set device to {rank} errored: {status}"
@@ -60,6 +67,7 @@ def build_and_run_llama(my_pm2_id, hf_model_dir, engine_dir, force_build, tp_siz
                                opt_batch_size=8,
                                max_num_tokens=2200,
                                max_batch_size=8,
+                            #    gather_generation_logits=True,
                                )
     # build_config.builder_opt = 0  # fast build for demo, pls avoid using this in production, since inference might be slower
     build_config.plugin_config.gemm_plugin = 'bfloat16'  # for fast build, tune inference perf based on your needs
@@ -70,6 +78,7 @@ def build_and_run_llama(my_pm2_id, hf_model_dir, engine_dir, force_build, tp_siz
         llama = LLaMAForCausalLM.from_hugging_face(hf_model_dir, mapping=mapping, dtype="bfloat16")
         engine = build(llama, build_config)
         engine.save(engine_dir)
+        return True
     mpi_barrier()  # make sure every rank engine build finished
     tokenizer = AutoTokenizer.from_pretrained(hf_model_dir)
     ## Initialize tokenizer and executor
@@ -77,11 +86,13 @@ def build_and_run_llama(my_pm2_id, hf_model_dir, engine_dir, force_build, tp_siz
         batching_type=tensorrt_llm.bindings.executor.BatchingType.INFLIGHT,
         kv_cache_config=tensorrt_llm.bindings.executor.KvCacheConfig(
             enable_block_reuse=True,
-            free_gpu_memory_fraction=0.2
-        )
+            free_gpu_memory_fraction=all_models[model] / TOTAL_SIZE
+        ),
+        normalize_log_probs=False
     )
+    print(f"Loading model {model}")
     myexecutor = GenerationExecutor.create(engine_dir, config)
-    sampling_params = SamplingParams(max_new_tokens=200)
+    sampling_params = SamplingParams(max_new_tokens=100)
     print("Created executor")
     if rank == 0:
         for inp in dataset():
@@ -96,7 +107,7 @@ def build_and_run_llama(my_pm2_id, hf_model_dir, engine_dir, force_build, tp_siz
         import uvicorn
         global executor
         executor = myexecutor
-        uvicorn.run(app, host="0.0.0.0", port=8000)
+        uvicorn.run(app, host="0.0.0.0", port=port)
 
     mpi_barrier()
     return True
@@ -119,39 +130,37 @@ async def generate_text_async(params: InputData):
         end_id=tokenizer.eos_token_id,
         stop_token_ids=[tokenizer.eos_token_id],
         seed=params.seed,
+        # return_generation_logits=True,
         return_log_probs=True,
+        top_k=0
     )
     stream = executor.generate_async(prompt,
                                sampling_params=sampling_params, streaming=True)
     responses = []
     first_at = None
     output_str = ""
-    last_output = None
-    timeout = 2.5
+    timeout = 10
+    buffer = []
     async for output in stream:
         if first_at is None:
             first_at = time.time()
         token = tokenizer.decode(output.outputs[0].token_ids[-1])
+        token_id = output.outputs[0].token_ids[-1]
         logprob = output.outputs[0].logprobs[-1]
-        last_output = output.outputs[0]
-        responses.append([token, logprob])
+        responses.append([token_id, logprob])
+        buffer.append([token_id, logprob])
+        if len(buffer) > BUFFER_SIZE:
+            yield json.dumps(buffer)
+            buffer = []
         
         output_str += token
-        if (time.time() - start_at > 0.4) and len(output_str) > 30:
-            # print("chunk", output_str)
-            # yield output_str
-            output_str = ""
         
         if timeout < time.time() - start_at:
             print(f"timeout {time.time() - start_at}s: {query}")
             break
 
-    # if output_str != "":
-    #     yield output_str
-    yield {
-        "token_ids": last_output.token_ids,
-        "logprobs": last_output.logprobs,
-    }
+    if len(buffer) > 0:
+        yield json.dumps(buffer)
     # output_str = "".join(responses)
     tps = len(responses) / (time.time() - start_at)
     try:
@@ -159,29 +168,20 @@ async def generate_text_async(params: InputData):
         tps_list.append(int(tps))
         average_tps = sum(tps_list[-20:]) / len(tps_list[-20:])
         first_average = sum(tps_list[0:20]) / len(tps_list[0:20])
-        # print(f"query: {last_output}")
-        # print(responses)
+        print(f"query: {query}")
+        print(f"response: {output_str}")
         print(f"tps: {tps}, {len(responses)} tokens in {time.time() - start_at} seconds, first token: {first_at - start_at}")
         print(f"average tps: {average_tps}/{first_average} requests: {len(tps_list)}, {tps_list[-10:]}")
         global is_exit
-        if len(tps_list) > 50 and (average_tps < 280 or average_tps < first_average * 0.8) and is_exit == False:
+        if len(tps_list) > 50 and (average_tps < 240 or average_tps < first_average * 0.8) and is_exit == False:
             is_exit = True
-            global pm2_id
-            my_pm2_id = pm2_id
-            print("average tps is too low, restarting the server", pm2_id)
-            other_pm2_id = 1 if my_pm2_id == 0 else 0
-            def restart_server():
-                subprocess.run(f"pm2 start {other_pm2_id}", shell=True, check=True)
-                print(f"Started {other_pm2_id}, waiting for 25 seconds")
-                time.sleep(25)
-                print(f"Stopping {my_pm2_id}")
-                subprocess.run(f"pm2 stop {my_pm2_id}", shell=True, check=True)
-            thread = threading.Thread(target=restart_server)
-            thread.start()
+            print("average tps is too low, restarting the server")
+            os._exit(1)
+
     except Exception as e:
         traceback.print_exc()
 
-async def generate_text(messages, max_tokens, seed, timeout=2.5):
+async def generate_text(messages, max_tokens, seed, timeout=10):
     output_str = ""
     async for output in generate_text_async(messages, max_tokens, seed, timeout):
         output_str += output
@@ -201,10 +201,14 @@ def generate_async(data: InputData):
 
 @app.get("/health")
 def health():
-    return "ok"
+    return "Healthy"
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Llama single model example")
+    parser.add_argument(
+        "-m", "--model",
+        default="NousResearch/Meta-Llama-3.1-8B-Instruct",
+    )
     parser.add_argument(
         "--engine_dir",
         type=str,
@@ -218,6 +222,11 @@ def parse_args():
         help="Read the model data and tokenizer from this directory"
     )
     parser.add_argument(
+        '-p', "--port",
+        type=int,
+        default=9001,
+    )
+    parser.add_argument(
         '-b', '--build',
         action='store_true',
         help='Force to rebuild the engine',
@@ -228,7 +237,6 @@ def parse_args():
                         type=int,
                         default=2,
                         help="TP size to run the model")
-    parser.add_argument("--pm2_id", type=int, default=0, help="pm2 id")
     return parser.parse_args()
 
 def main(args):
@@ -241,11 +249,13 @@ def main(args):
     ## Build engine in parallel
     with MPIPoolExecutor(max_workers=args.tp_size) as pool:
         results = pool.map(build_and_run_llama,
-                           [args.pm2_id] * args.tp_size,
+                           [args.model] * args.tp_size,
                            [args.hf_model_dir] * args.tp_size,
                            [args.engine_dir] * args.tp_size,
                            [args.build] * args.tp_size,
-                           [args.tp_size] * args.tp_size, range(args.tp_size))
+                           [args.tp_size] * args.tp_size, 
+                           [args.port] * args.tp_size,
+                           range(args.tp_size))
         for r in results:
             assert r
 
