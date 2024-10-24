@@ -22,8 +22,8 @@ import json
 all_models = {
     "NousResearch/Meta-Llama-3.1-8B-Instruct": 8,
     "NousResearch/Hermes-3-Llama-3.1-8B": 8,
-    "NTQAI/Nxcode-CQ-7B-orpo": 7,
-    "gryphe/mythomax-l2-13b": 13,
+    # "NTQAI/Nxcode-CQ-7B-orpo": 7,
+    # "gryphe/mythomax-l2-13b": 13,
     # "deepseek-ai/deepseek-coder-33b-instruct": 33,
     # "nvidia/Llama-3.1-Nemotron-70B-Instruct-HF": 70,
 }
@@ -63,16 +63,27 @@ def build_and_run_llama(model, hf_model_dir, engine_dir, force_build, tp_size, p
 
     ## Build engine
     build_config = BuildConfig(max_input_len=256,
-                               max_seq_len=2200,
+                               max_seq_len=2400,
                                opt_batch_size=8,
                                max_num_tokens=2200,
                                max_batch_size=8,
+                               max_prompt_embedding_table_size=24,
+                               builder_opt=10,
+
                             #    gather_generation_logits=True,
                                )
     # build_config.builder_opt = 0  # fast build for demo, pls avoid using this in production, since inference might be slower
     build_config.plugin_config.gemm_plugin = 'bfloat16'  # for fast build, tune inference perf based on your needs
     build_config.plugin_config.gpt_attention_plugin = 'bfloat16'  # for fast build, tune inference perf based on your needs
-    build_config.plugin_config.context_fmha_type = 'enabled'  # for fast build, tune inference perf based on your needs
+    build_config.plugin_config.nccl_plugin = 'bfloat16'  # for fast build, tune inference perf based on your needs
+    # build_config.kv_cache_type = tensorrt_llm.builder.KVCacheType.CONTINUOUS  # for fast build, tune inference perf based on your needs
+    build_config.plugin_config.context_fmha = True  # for fast build, tune inference perf based on your needs
+    build_config.plugin_config.paged_kv_cache = True  # for fast build, tune inference perf based on your needs
+    build_config.plugin_config.tokens_per_block = 512
+    build_config.plugin_config._remove_input_padding = True
+    # build_config.plugin_config._use_paged_context_fmha = True  # for fast build, tune inference perf based on your needs
+    build_config.kv_cache_type = tensorrt_llm.builder.KVCacheType.PAGED  # for fast build, tune inference perf based on your needs
+    build_config.plugin_config._use_paged_context_fmha = True  # for fast build, tune inference perf based on your needs
     mapping = Mapping(world_size=tp_size, rank=rank, tp_size=tp_size)
     if force_build:
         llama = LLaMAForCausalLM.from_hugging_face(hf_model_dir, mapping=mapping, dtype="bfloat16")
@@ -86,9 +97,12 @@ def build_and_run_llama(model, hf_model_dir, engine_dir, force_build, tp_size, p
         batching_type=tensorrt_llm.bindings.executor.BatchingType.INFLIGHT,
         kv_cache_config=tensorrt_llm.bindings.executor.KvCacheConfig(
             enable_block_reuse=True,
-            free_gpu_memory_fraction=all_models[model] / TOTAL_SIZE
+            free_gpu_memory_fraction=0.9,
+            max_tokens=32768
         ),
-        normalize_log_probs=False
+        normalize_log_probs=False,
+        max_batch_size=8,
+        # enable_chunked_context=True,
     )
     print(f"Loading model {model}")
     myexecutor = GenerationExecutor.create(engine_dir, config)
@@ -173,7 +187,7 @@ async def generate_text_async(params: InputData):
         print(f"tps: {tps}, {len(responses)} tokens in {time.time() - start_at} seconds, first token: {first_at - start_at}")
         print(f"average tps: {average_tps}/{first_average} requests: {len(tps_list)}, {tps_list[-10:]}")
         global is_exit
-        if len(tps_list) > 50 and (average_tps < 240 or average_tps < first_average * 0.8) and is_exit == False:
+        if len(tps_list) > 50 and (average_tps < 200 or average_tps < first_average * 0.8) and is_exit == False:
             is_exit = True
             print("average tps is too low, restarting the server")
             os._exit(1)
