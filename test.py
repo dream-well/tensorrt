@@ -70,7 +70,25 @@ async def get_request():
                 print(f"{(len(outputs) / duration):.2f} tps, {len(outputs)} tokens in {duration:.2f} seconds")
             
             await iter_response()
+    response = requests.post(url, json=request)
 
-asyncio.run(get_request())
+    # start_at = time.time()
+
+    # Using a synchronous request with httpx instead of asyncio to avoid the coroutine issue
+    # async with httpx.AsyncClient() as client:
+    #     response = await client.post(url, json=request)
+
+    #     # Check if the response is successful
+    #     if response.status_code == 200:
+    #         outputs = response.json()
+    #         duration = time.time() - start_at
+    #         print(f"{(len(outputs) / duration):.2f} tps, {len(outputs)} tokens in {duration:.2f} seconds")
+    #     else:
+    #         print(f"Failed to get a valid response. Status code: {response.status_code}")
+
+count = 1000
+while count > 0:
+    asyncio.run(get_request())
+    count -= 1
 
         
