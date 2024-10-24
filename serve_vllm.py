@@ -57,8 +57,9 @@ class LLMGenerator:
         self.engine = AsyncLLMEngine.from_engine_args(
             engine_args=engine_args
         )
-        self.TOKENIZER = asyncio.run(self.load_tokenizer())
+        asyncio.run(self.load_tokenizer())
         self.eos_token_id = getattr(self.TOKENIZER, "eos_token_id", -1)
+        self.eot_token_id = self.TOKENIZER.get_vocab().get("<|eot_id|>", -1)  # type: ignore
         # self.MODEL = self.engine.llm_engine.model_executor.driver_worker.model_runner.model
         # self.MODEL_NUM_PARAMS = sum(1 for _ in self.MODEL.parameters())
         print(self.MODEL_NAME, "Loaded")
@@ -83,6 +84,7 @@ class LLMGenerator:
             seed=request["seed"],
             max_tokens=request["max_tokens"],
             logprobs=True,
+            stop_token_ids=[self.eos_token_id, self.eot_token_id],
         )
         print("Prompt:", prompt)
         global request_id
