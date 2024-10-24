@@ -169,9 +169,9 @@ Search query: "superpower story with emotional journey"""
 async def test():
     responses = []
     for i in range(5):
-        async for token_id, logprob in generators[request['model']].generate_async(request):
-            # print(token_id, logprob)
-            responses.append(token_id)
+        async for token in generators[request['model']].generate_async(request):
+            # print(token, logprob)
+            responses.append(token)
     print("done")
 
 asyncio.run(test())
