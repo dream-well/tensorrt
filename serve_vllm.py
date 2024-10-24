@@ -104,8 +104,8 @@ class LLMGenerator:
             if first_at is None:
                 first_at = time.time()
             token_id = output.token_ids[-1]
-            logprob = output.logprobs[-1].get(token_id, 1e-8).logprob
-            yield [token_id, logprob]
+            logprob = output.logprobs[-1].get(token_id)
+            yield [token_id, logprob.logprob if logprob is not None else 1e-8]
         print(output.text)
         duration = time.time() - start_at
         print(f"Duration: {duration:.2f}s, Speed: {len(output.token_ids)/duration:.2f} tps, in {len(output.token_ids)} tokens, tftt: {first_at - start_at:.2f}s")
