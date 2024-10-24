@@ -75,6 +75,7 @@ class LLMGenerator:
     
     async def load_tokenizer(self):
         self.TOKENIZER = await self.engine.get_tokenizer()
+        print("Tokenizer Loaded")
 
     async def generate_async(self, request: dict):
         prompt = (
@@ -103,7 +104,7 @@ class LLMGenerator:
             if first_at is None:
                 first_at = time.time()
             token_id = output.token_ids[-1]
-            logprob = output.logprobs[-1].get(token_id, 1e-8)
+            logprob = output.logprobs[-1].get(token_id, 1e-8).logprob
             yield [token_id, logprob]
         print(output.text)
         duration = time.time() - start_at
@@ -165,9 +166,12 @@ Search query: "superpower story with emotional journey"""
 }
 
 async def test():
+    responses = []
     for i in range(5):
         async for token_id, logprob in generators[request['model']].generate_async(request):
-            print(token_id, logprob)
+            # print(token_id, logprob)
+            responses.append(token_id)
+    print("done")
 
 asyncio.run(test())
 
