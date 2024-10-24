@@ -1,4 +1,5 @@
 import asyncio
+from fastapi.responses import StreamingResponse
 from vllm import AsyncEngineArgs, SamplingParams, AsyncLLMEngine
 import vllm
 import os
@@ -47,7 +48,7 @@ class LLMGenerator:
             max_model_len=2048,
             max_seq_len_to_capture=2048,
             max_num_batched_tokens=2048,
-            max_num_seqs=1,
+            max_num_seqs=4,
             tensor_parallel_size=8,
             disable_log_stats=True,
             block_size=32,
@@ -123,7 +124,7 @@ app = FastAPI()
 async def generate_async(request: dict):
     if request['model'] not in generators:
         return generators[models[0]].generate_async(request)
-    return generators[request['model']].generate_async(request)
+    return StreamingResponse(generators[request['model']].generate_async(request))
 
 @app.get("/health")
 async def health_check():
