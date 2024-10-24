@@ -103,6 +103,8 @@ class LLMGenerator:
             if len(responses) > 30:
                 yield json.dumps(responses)
                 responses = []
+        if len(responses) > 0:
+            yield json.dumps(responses)
         print(output.text)
         duration = time.time() - start_at
         print(f"Duration: {duration:.2f}s, Speed: {len(output.token_ids)/duration:.2f} tps, in {len(output.token_ids)} tokens, tftt: {first_at - start_at:.2f}s")
