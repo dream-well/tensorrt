@@ -37,7 +37,7 @@ MODEL_SUM = 30
 request_id = 0
 
 class LLMGenerator:
-    
+
     def __init__(self, model_name, size):
         self.MODEL_NAME = model_name
         torch.set_default_dtype(torch.bfloat16) # Use float16 for faster generation.
@@ -66,13 +66,16 @@ class LLMGenerator:
         self.engine = AsyncLLMEngine.from_engine_args(
             engine_args=engine_args
         )
-        self.TOKENIZER = self.engine.get_tokenizer()
+        self.TOKENIZER = asyncio.run(self.load_tokenizer())
         self.eos_token_id = getattr(self.TOKENIZER, "eos_token_id", -1)
         # self.MODEL = self.engine.llm_engine.model_executor.driver_worker.model_runner.model
         # self.MODEL_NUM_PARAMS = sum(1 for _ in self.MODEL.parameters())
         print(self.MODEL_NAME, "Loaded")
         # print("MODEL NUM PARAMS:", self.MODEL_NUM_PARAMS)
     
+    async def load_tokenizer(self):
+        self.TOKENIZER = await self.engine.get_tokenizer()
+
     async def generate_async(self, request: dict):
         prompt = (
             request['prompt']
