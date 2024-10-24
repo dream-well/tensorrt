@@ -111,7 +111,7 @@ models = [model_names[int(idx)] for idx in serving_models]
 MODEL_SUM = sum([all_models[model_name] for model_name in models]) * 1.1
 print("Loading models", models, MODEL_SUM)
 
-generator = LLMGenerator(model, all_models[model])
+generator = LLMGenerator(model)
 
 from fastapi import FastAPI
 
