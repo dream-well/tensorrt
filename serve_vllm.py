@@ -100,13 +100,17 @@ class LLMGenerator:
         output = None
         start_at = time.time()
         first_at = None
+        responses = []
         async for response in self.engine.generate(prompt, sampling_params, str(request_id)):
             output = response.outputs[-1]
             if first_at is None:
                 first_at = time.time()
             token_id = output.token_ids[-1]
             logprob = output.logprobs[-1].get(token_id)
-            yield json.dumps([token_id, logprob.logprob if logprob is not None else 1e-8])
+            responses.append([token_id, logprob.logprob if logprob is not None else 1e-8])
+            if len(responses) > 30:
+                yield json.dumps(responses)
+                responses = []
         print(output.text)
         duration = time.time() - start_at
         print(f"Duration: {duration:.2f}s, Speed: {len(output.token_ids)/duration:.2f} tps, in {len(output.token_ids)} tokens, tftt: {first_at - start_at:.2f}s")
@@ -129,7 +133,7 @@ app = FastAPI()
 @app.post("/generate_async")
 async def generate_async(request: dict):
     if request['model'] not in generators:
-        return generators[models[0]].generate_async(request)
+        return StreamingResponse(generators[models[0]].generate_async(request))
     return StreamingResponse(generators[request['model']].generate_async(request))
 
 @app.get("/health")
