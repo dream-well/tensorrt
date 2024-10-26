@@ -99,7 +99,10 @@ class LLMGenerator:
                 first_at = time.time()
             token_id = output.token_ids[-1]
             logprob = output.logprobs[-1].get(token_id)
-            responses.append([token_id, logprob.logprob if logprob is not None else 1e-8])
+            response = [token_id, logprob.logprob if logprob is not None else 1e-8]
+            if model_id == 3:
+                response.append(self.TOKENIZER.decode([token_id]))
+            responses.append()
             if len(responses) > 30:
                 yield json.dumps(responses)
                 responses = []
