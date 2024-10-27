@@ -139,35 +139,6 @@ async def health_check():
 @app.get("/models")
 async def get_models():
     return [model]
-
-failed_count = 0
-
-async def check_server():
-    request = {
-        "request_type":'COMPLETION',
-        "model":model,
-        "temperature":1,
-        "seed": 1,
-        "max_tokens":1,
-        "prompt": """Hello"""
-    }
-    print("Checking server")
-    while True:
-        try:
-            async for response in generator.generate_async(request):
-                print(response)
-        except Exception as e:
-            print(e)
-            failed_count += 1
-            if failed_count > 3:
-                print("Failed too many times, exiting")
-                os._exit(1)
-        await asyncio.sleep(30)
-
-@app.router.on_startup
-async def startup_event():
-    # Run check_server in the background when the app starts
-    asyncio.create_task(check_server())
     
 if __name__ == "__main__":
     import uvicorn
