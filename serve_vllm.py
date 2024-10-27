@@ -164,9 +164,11 @@ async def check_server():
                 os._exit(1)
         await asyncio.sleep(30)
 
-# launch checking server thread
-asyncio.create_task(check_server())
-
+@app.router.on_startup
+async def startup_event():
+    # Run check_server in the background when the app starts
+    asyncio.create_task(check_server())
+    
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
