@@ -24,6 +24,7 @@ url = 'http://localhost:8000/generate_async'
 failed_count = 0
 
 async def get_request():
+    global failed_count
     """Forward the incoming request to a backend server and stream the response."""
     start_at = time.time()
 
