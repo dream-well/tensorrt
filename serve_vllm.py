@@ -45,7 +45,7 @@ class LLMGenerator:
             max_model_len=2048,
             max_seq_len_to_capture=2048,
             max_num_batched_tokens=2048,
-            max_num_seqs=4,
+            max_num_seqs=4 if model_id < 2 else 1,
             tensor_parallel_size=8,
             disable_log_stats=True,
             block_size=32,
@@ -94,14 +94,19 @@ class LLMGenerator:
         first_at = None
         responses = []
         async for response in self.engine.generate(prompt, sampling_params, str(request_id)):
-            output = response.outputs[-1]
+            output = response.outputs[0]
             if first_at is None:
                 first_at = time.time()
         
-            token_id = output.token_ids[-1]
-            logprob = output.logprobs[-1].get(token_id)
-            response = [token_id, logprob.logprob if logprob is not None else 1e-8, logprob.decoded_token if logprob is not None else ""]
+            index = len(output.token_ids) - 1
+            token_id = output.token_ids[index]
+            my_logprob = output.logprobs[index]
+            logprob_token_id = list(my_logprob.keys())[0]
+            logprob = list(my_logprob.values())[0]
+            response = [logprob_token_id, logprob.logprob if logprob is not None else 1e-8, logprob.decoded_token if logprob is not None else ""]
             responses.append(response)
+            if token_id != logprob_token_id:
+                print("Token ID mismatch", token_id, logprob_token_id)
             if len(responses) > 30:
                 yield json.dumps(responses)
                 responses = []
