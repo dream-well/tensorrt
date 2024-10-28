@@ -92,6 +92,7 @@ class LLMGenerator:
                 request['messages'],
                 tokenize=False,
                 add_special_tokens=False,
+                add_generation_prompt=True
             )
         )
         top_logprobs = int(request["temperature"] * 10) + 3
