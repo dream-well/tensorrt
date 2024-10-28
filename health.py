@@ -57,7 +57,7 @@ async def get_request():
             if failed_count > 3:
                 print("Failed too many times, exiting")
                 os.system("pm2 restart start_vllm")
-                failed_count = 0
+                failed_count = -6
             time.sleep(120)
     requests.post(url, json=request)
 
