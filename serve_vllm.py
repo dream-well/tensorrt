@@ -45,7 +45,7 @@ class LLMGenerator:
         engine_args = AsyncEngineArgs(
             model=self.MODEL_NAME,
             # enforce_eager=True,
-            gpu_memory_utilization=0.95,
+            gpu_memory_utilization=0.98,
             max_model_len=2048,
             max_seq_len_to_capture=2048,
             max_num_batched_tokens=2048,
@@ -97,14 +97,13 @@ class LLMGenerator:
         top_logprobs = int(request["temperature"] * 10) + 3
         sampling_params = SamplingParams(
             # temperature=request["temperature"],
-            temperature = 0,
+            temperature = request['temperature'] if model_id == 0 else 0,
             seed=request["seed"],
             max_tokens=request["max_tokens"],
             stop_token_ids=self.stop_token_ids,
             # logprobs=top_logprobs,
             # prompt_logprobs=top_logprobs,
             logprobs=top_logprobs,
-            skip_special_tokens=True,
             # logits_processors=[self.exclude_token_processor],
         )
         print("Prompt:", prompt)
@@ -154,7 +153,9 @@ class LLMGenerator:
                 ):
                     print(f"Expected EOS/EOT token at index {index}", "SKIPPED_EOS_EOT")
                     break
-                
+                if index > 50 and token_id == 128001:
+                    print("Found <|end_of_text|> token at index", index, "SKIPPED_EOS")
+                    break
                 response = [logprob_token_id, logprob.logprob if logprob is not None else 1e-8, logprob.decoded_token if logprob is not None else ""]
                 responses.append(response)
                 if token_id != logprob_token_id:
